@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Notepad-
+Comment=Editor di testo in Python (tkinter)
+Exec=python3 /percorso/assoluto/Notepad-/main.py
+Icon=accessories-text-editor
+Terminal=false
+Categories=Utility;TextEditor;
