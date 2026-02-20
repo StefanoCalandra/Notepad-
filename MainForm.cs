@@ -80,11 +80,14 @@ public class MainForm : Form
 
         editor.TextChanged += (_, _) =>
         {
-            if (page.Tag is DocumentState doc)
+            if (page.Tag is not DocumentState doc || doc.IsLoading)
             {
-                doc.Dirty = true;
-                UpdateTabTitle(page, doc);
+                UpdateStatus();
+                return;
             }
+
+            doc.Dirty = true;
+            UpdateTabTitle(page, doc);
             UpdateStatus();
         };
         editor.SelectionChanged += (_, _) => UpdateStatus();
@@ -110,6 +113,29 @@ public class MainForm : Form
         page.Text = doc.Dirty ? $"{baseName} *" : baseName;
     }
 
+    private bool IsEmptyUntouchedTab(TabPage? page)
+    {
+        if (page is null) return false;
+        if (page.Tag is not DocumentState doc) return false;
+        var editor = page.Controls.OfType<RichTextBox>().FirstOrDefault();
+        return editor is not null && !doc.Dirty && string.IsNullOrWhiteSpace(doc.FilePath) && editor.TextLength == 0;
+    }
+
+    private void LoadDocumentIntoTab(TabPage page, string filePath, string text)
+    {
+        if (page.Tag is not DocumentState doc) return;
+        var editor = page.Controls.OfType<RichTextBox>().FirstOrDefault();
+        if (editor is null) return;
+
+        doc.IsLoading = true;
+        editor.Text = text;
+        doc.FilePath = filePath;
+        doc.Dirty = false;
+        doc.IsLoading = false;
+        UpdateTabTitle(page, doc);
+        UpdateStatus();
+    }
+
     private void OpenFile()
     {
         using var dialog = new OpenFileDialog
@@ -122,16 +148,23 @@ public class MainForm : Form
         try
         {
             var text = File.ReadAllText(dialog.FileName, Encoding.UTF8);
-            NewTab(Path.GetFileName(dialog.FileName), text, dialog.FileName);
-            if (CurrentDocument() is { } doc)
+            var current = _tabControl.SelectedTab;
+
+            if (IsEmptyUntouchedTab(current) && current is not null)
             {
-                doc.Dirty = false;
-                UpdateTabTitle(_tabControl.SelectedTab!, doc);
+                LoadDocumentIntoTab(current, dialog.FileName, text);
+            }
+            else
+            {
+                NewTab(Path.GetFileName(dialog.FileName), string.Empty, dialog.FileName);
+                if (_tabControl.SelectedTab is { } selected)
+                    LoadDocumentIntoTab(selected, dialog.FileName, text);
             }
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Errore in apertura file:\n{ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show($"Errore in apertura file:
+{ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
@@ -156,7 +189,8 @@ public class MainForm : Form
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Errore in salvataggio:\n{ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show($"Errore in salvataggio:
+{ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return false;
         }
     }
@@ -179,19 +213,23 @@ public class MainForm : Form
         return SaveCurrent();
     }
 
-    private void SaveAll()
+    private bool SaveAll()
     {
         var current = _tabControl.SelectedTab;
 
         foreach (TabPage page in _tabControl.TabPages)
         {
             _tabControl.SelectedTab = page;
-            if (page.Tag is DocumentState { Dirty: true })
-                SaveCurrent();
+            if (page.Tag is DocumentState { Dirty: true } && !SaveCurrent())
+            {
+                _tabControl.SelectedTab = current;
+                return false;
+            }
         }
 
         _tabControl.SelectedTab = current;
         UpdateStatus();
+        return true;
     }
 
     private bool ConfirmClose(TabPage page)
@@ -334,6 +372,7 @@ public class MainForm : Form
     {
         public string? FilePath { get; set; } = filePath;
         public bool Dirty { get; set; }
+        public bool IsLoading { get; set; }
     }
 }
 
